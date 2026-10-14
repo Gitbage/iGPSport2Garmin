@@ -322,125 +322,124 @@ class GarminClient:
             return []
 
     def upload_fit(
-    self,
-    fit_data: bytes,
-    activity_name: str = None,
-) -> Optional[Dict]:
-    """Upload a FIT file using the new Garmin Connect client."""
-    if not isinstance(fit_data, bytes) or not fit_data:
-        logger.error("Invalid or empty FIT data")
-        return None
+        self,
+        fit_data: bytes,
+        activity_name: str = None,
+    ) -> Optional[Dict]:
+        """Upload a FIT file using the new Garmin Connect client."""
+        if not isinstance(fit_data, bytes) or not fit_data:
+            logger.error("Invalid or empty FIT data")
+            return None
 
-    if not self.authenticated and not self.authenticate():
-        logger.error("Cannot upload activity: not authenticated")
-        return None
+        if not self.authenticated and not self.authenticate():
+            logger.error("Cannot upload activity: not authenticated")
+            return None
 
-    if not getattr(self, "client", None):
-        logger.error("Garmin client is not initialized")
-        return None
+        if not getattr(self, "client", None):
+            logger.error("Garmin client is not initialized")
+            return None
 
-    last_error = None
+        last_error = None
 
-    for attempt in range(self.max_retries + 1):
-        temp_file_path = None
+        for attempt in range(self.max_retries + 1):
+            temp_file_path = None
 
-        try:
-            if attempt > 0:
-                delay = (
-                    self.retry_delay * (2 ** (attempt - 1))
-                    + random.uniform(0, 2)
-                )
-                logger.info(
-                    "Retrying upload, attempt %s/%s after %.2f seconds",
-                    attempt,
-                    self.max_retries,
-                    delay,
-                )
-                time.sleep(delay)
-
-            with tempfile.NamedTemporaryFile(
-                suffix=".fit", delete=False
-            ) as temp_file:
-                temp_file.write(fit_data)
-                temp_file_path = temp_file.name
-
-            logger.info(
-                "Uploading activity %s (%s bytes)",
-                activity_name or "Unknown Activity",
-                len(fit_data),
-            )
-
-            # New library API: upload by file path.
-            uploaded = self.client.upload_activity(temp_file_path)
-
-            logger.info(
-                "Activity upload completed: %s",
-                uploaded,
-            )
-            return uploaded
-
-        except Exception as e:
-            last_error = e
-            error_text = str(e).lower()
-
-            logger.warning(
-                "Upload attempt %s/%s failed for %s: %s",
-                attempt + 1,
-                self.max_retries + 1,
-                activity_name or "Unknown Activity",
-                e,
-            )
-
-            # A duplicate/conflict should not be retried.
-            if "409" in error_text or "conflict" in error_text:
-                logger.warning(
-                    "Activity conflict detected; skipping upload"
-                )
-                return None
-
-            # Do not retry rate-limit errors or repeatedly log in.
-            if (
-                "429" in error_text
-                or "too many requests" in error_text
-                or "rate limit" in error_text
-            ):
-                logger.error(
-                    "Garmin rate limit detected; stopping retries"
-                )
-                return None
-
-            # Authentication errors should be handled deliberately,
-            # not by repeatedly forcing new logins.
-            if (
-                "authentication" in error_text
-                or "unauthorized" in error_text
-                or "401" in error_text
-            ):
-                logger.error(
-                    "Authentication error during upload; "
-                    "stopping retries"
-                )
-                return None
-
-            if attempt >= self.max_retries:
-                logger.error(
-                    "Upload failed after %s attempts: %s",
-                    self.max_retries + 1,
-                    last_error,
-                )
-                return None
-
-        finally:
-            if temp_file_path and os.path.exists(temp_file_path):
-                try:
-                    os.unlink(temp_file_path)
-                except OSError:
-                    logger.warning(
-                        "Unable to remove temporary file: %s",
-                        temp_file_path,
+            try:
+                if attempt > 0:
+                    delay = (
+                        self.retry_delay * (2 ** (attempt - 1))
+                        + random.uniform(0, 2)
                     )
+                    logger.info(
+                        "Retrying upload, attempt %s/%s after %.2f seconds",
+                        attempt,
+                        self.max_retries,
+                        delay,
+                    )
+                    time.sleep(delay)
 
-    return None
+                with tempfile.NamedTemporaryFile(
+                    suffix=".fit", delete=False
+                ) as temp_file:
+                    temp_file.write(fit_data)
+                    temp_file_path = temp_file.name
+
+                logger.info(
+                    "Uploading activity %s (%s bytes)",
+                    activity_name or "Unknown Activity",
+                    len(fit_data),
+                )
+
+                # New library API: upload by file path.
+                uploaded = self.client.upload_activity(temp_file_path)
+
+                logger.info(
+                    "Activity upload completed: %s",
+                    uploaded,
+                )
+                return uploaded
+
+            except Exception as e:
+                last_error = e
+                error_text = str(e).lower()
+
+                logger.warning(
+                    "Upload attempt %s/%s failed for %s: %s",
+                    attempt + 1,
+                    self.max_retries + 1,
+                    activity_name or "Unknown Activity",
+                    e,
+                )
+
+                # A duplicate/conflict should not be retried.
+                if "409" in error_text or "conflict" in error_text:
+                    logger.warning(
+                        "Activity conflict detected; skipping upload"
+                    )
+                    return None
+
+                # Do not retry rate-limit errors or repeatedly log in.
+                if (
+                    "429" in error_text
+                    or "too many requests" in error_text
+                    or "rate limit" in error_text
+                ):
+                    logger.error(
+                        "Garmin rate limit detected; stopping retries"
+                    )
+                    return None
+
+                # Authentication errors should be handled deliberately,
+                # not by repeatedly forcing new logins.
+                if (
+                    "authentication" in error_text
+                    or "unauthorized" in error_text
+                    or "401" in error_text
+                ):
+                    logger.error(
+                        "Authentication error during upload; "
+                        "stopping retries"
+                    )
+                    return None
+
+                if attempt >= self.max_retries:
+                    logger.error(
+                        "Upload failed after %s attempts: %s",
+                        self.max_retries + 1,
+                        last_error,
+                    )
+                    return None
+
+            finally:
+                if temp_file_path and os.path.exists(temp_file_path):
+                    try:
+                        os.unlink(temp_file_path)
+                    except OSError:
+                        logger.warning(
+                            "Unable to remove temporary file: %s",
+                            temp_file_path,
+                        )
+        return None
 
 
 def load_last_sync_date() -> datetime.datetime:
