@@ -13,7 +13,9 @@ import random
 import datetime
 import requests
 import tempfile
-import garth
+#import garth
+from pathlib import Path
+from garminconnect import Garmin
 from pathlib import Path
 import logging
 from dateutil.parser import parse
@@ -177,71 +179,103 @@ class GarminClient:
         self.retry_delay = retry_delay
         self.authenticated = False
 
-    def authenticate(self, force: bool = False) -> bool:
-        """
-        Authenticate with Garmin Connect.
+def authenticate(self, force: bool = False) -> bool:
+    """
+    Authenticate with Garmin Connect using the new garminconnect library.
 
-        Args:
-            force: If True, force a new authentication even if a session exists
+    Args:
+        force: If True, discard the local cached token and log in again.
 
-        Returns:
-            True if authentication is successful, False otherwise
-        """
-        try:
-            # Try to load session from file first
-            if not force and self._load_session():
-                logger.info("Loaded existing Garmin session from cache")
-                self.authenticated = True
-                return True
+    Returns:
+        True if authentication succeeds, False otherwise.
+    """
+    try:
+        token_dir = str(Path(GARMIN_SESSION_DIR).expanduser())
+        token_file = Path(token_dir) / "garmin_tokens.json"
 
-            # Perform a new login
-            logger.info("Performing new Garmin authentication")
-            garth.login(self.email, self.password)
+        os.makedirs(token_dir, exist_ok=True)
 
-            # Save the session for future use
-            self._save_session()
-
-            logger.info("Successfully authenticated with Garmin Connect")
+        # Reuse and validate an existing session unless force=True.
+        if not force and self._load_session():
+            logger.info("Loaded existing Garmin session from cache")
             self.authenticated = True
             return True
-        except Exception as e:
-            logger.error(f"Error authenticating with Garmin Connect: {e}")
-            self.authenticated = False
+
+        logger.info("Performing new Garmin authentication")
+
+        # Remove only the new library's local token file when forced.
+        if force and token_file.exists():
+            Garmin().logout(token_dir)
+            logger.info("Cleared cached Garmin tokens")
+
+        # New authentication implementation; garth.login() is no longer used.
+        client = Garmin(
+            email=self.email,
+            password=self.password,
+            prompt_mfa=lambda: input("Enter Garmin MFA code: ").strip(),
+        )
+
+        # Login and persist the new token format.
+        client.login(token_dir)
+
+        self.client = client
+
+        if not self._save_session():
+            logger.warning(
+                "Login succeeded, but the token file could not be verified"
+            )
+
+        self.authenticated = True
+        logger.info("Successfully authenticated with Garmin Connect")
+        return True
+
+    except Exception:
+        logger.exception("Error authenticating with Garmin Connect")
+        self.authenticated = False
+        return False
+
+
+def _save_session(self) -> bool:
+    """Verify that the new Garmin token file was saved."""
+    try:
+        token_dir = Path(GARMIN_SESSION_DIR).expanduser()
+        token_file = token_dir / "garmin_tokens.json"
+
+        if not token_file.is_file():
+            logger.error("Garmin token file was not created: %s", token_file)
             return False
 
-    def _save_session(self) -> bool:
-        """Save the current Garmin session to a directory."""
-        try:
-            os.makedirs(GARMIN_SESSION_DIR, exist_ok=True)
-            garth.save(GARMIN_SESSION_DIR)
-            logger.info(f"Garmin session saved to directory: {GARMIN_SESSION_DIR}")
-            return True
-        except Exception as e:
-            logger.error(f"Error saving Garmin session: {e}")
+        logger.info("Garmin tokens saved to: %s", token_file)
+        return True
+
+    except Exception:
+        logger.exception("Error verifying Garmin session")
+        return False
+
+
+def _load_session(self) -> bool:
+    """Load and validate a cached session using the new library."""
+    try:
+        token_dir = Path(GARMIN_SESSION_DIR).expanduser()
+        token_file = token_dir / "garmin_tokens.json"
+
+        if not token_file.is_file():
+            logger.info("No new-format Garmin token file found")
             return False
 
-    def _load_session(self) -> bool:
-        """Load a saved Garmin session from directory."""
-        try:
-            if not os.path.exists(GARMIN_SESSION_DIR) or not os.path.isdir(
-                GARMIN_SESSION_DIR
-            ):
-                logger.info("No saved Garmin session directory found")
-                return False
+        # No credentials are needed when valid cached tokens are available.
+        client = Garmin()
+        client.login(str(token_dir))
 
-            garth.resume(GARMIN_SESSION_DIR)
+        # login() validates the session and loads profile/settings.
+        self.client = client
 
-            try:
-                garth.client.username
-                logger.info("Loaded Garmin session is valid")
-                return True
-            except Exception as e:
-                logger.info(f"Loaded Garmin session is invalid or expired: {e}")
-                return False
+        logger.info("Loaded and validated Garmin session")
+        return True
 
-        except Exception as e:
-            logger.error(f"Error loading Garmin session: {e}")
-            return False
+    except Exception:
+        logger.exception("Unable to load or validate cached Garmin session")
+        return False
 
     def get_activities(
         self, start_date: Optional[datetime.datetime] = None, limit: int = 10
