@@ -3,7 +3,8 @@ name: iGPSport to Garmin Sync
 on:
   schedule:
     # - cron: '*/20 * * * *'
-    - cron: '0 */4 * * *'
+    #- cron: '0 */4 * * *'
+    - cron: "0 22,3,7,14 * * *" #06:00、11:00、15:00、22:00
   workflow_dispatch:
 
 jobs:
